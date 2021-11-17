@@ -23,12 +23,12 @@ const mailTransporter = () => {
   });
 };
 
-const mailOptions = (resetToken, mail) => {
+const mailOptions = (resetLink, mail, subject) => {
   return {
     from: "kkalyan812@gmail.com",
     to: mail,
-    subject: "Verify Account",
-    text: `http://localhost:3000/api/user/verify-account/${resetToken}`,
+    subject: subject,
+    text: resetLink,
   };
 };
 
@@ -63,18 +63,25 @@ router.post("/signup", async (req, res) => {
     });
     const result = await user.save();
     const transporter = mailTransporter();
-    transporter.sendMail(mailOptions(resetToken, email), (err, response) => {
-      if (err)
-        return res.status(400).send({
-          type: "error",
-          message: "Something went wrong!! Try again..",
+    transporter.sendMail(
+      mailOptions(
+        `http://localhost:3000/api/user/verify-account/${resetToken}`,
+        email,
+        "Verify Account"
+      ),
+      (err, response) => {
+        if (err)
+          return res.status(400).send({
+            type: "error",
+            message: "Something went wrong!! Try again..",
+          });
+        return res.status(200).send({
+          type: "success",
+          user: result,
+          message: "Signin success! Please verify your email..",
         });
-      return res.status(200).send({
-        type: "success",
-        user: result,
-        message: "Signin success! Please verify your email..",
-      });
-    });
+      }
+    );
   } catch (error) {
     res.status(500).send(handleErrors(error));
   }
@@ -147,15 +154,106 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.put("/change-password/", async (req, res) => {
+router.post("/get-reset-link", async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user)
+      return res
+        .status(400)
+        .json({ type: "error", message: "User with this email not exists" });
+    const resetToken = await generateToken(email);
+    const transporter = mailTransporter();
+    transporter.sendMail(
+      mailOptions(
+        `http://localhost:3000/user/reset-password/${resetToken}`,
+        email,
+        "Password Reset Link"
+      ),
+      (err, response) => {
+        if (err)
+          return res.status(500).json({
+            type: "error",
+            message: "Something went wrong, please try again!!",
+          });
+        res.status(200).json({
+          type: "success",
+          message: "Password reset link has been sent to your email",
+        });
+      }
+    );
+  } catch (error) {
+    return res.status(500).json({
+      type: "error",
+      message: "Something went wrong, please try again!!",
+    });
+  }
+});
+
+router.get("/check-valid-token/:id", async (req, res) => {
+  const token = req.params.id;
+  try {
+    await jwt.verify(token, keys.jwtSecret, async (err, decoded) => {
+      console.log(decoded);
+      if (err)
+        return res.status(400).json({ type: "error", isValidToken: false });
+      const user = await User.findOne({ email: decoded.emailId });
+      return res
+        .status(200)
+        .json({ type: "success", isValidToken: true, user });
+    });
+  } catch (error) {}
+});
+
+router.put("/reset-password", async (req, res) => {
+  const { token, password } = req.body;
+  try {
+    const salt = await bcrypt.genSalt();
+    const hashedPassword = await bcrypt.hash(password, salt);
+    await jwt.verify(token, keys.jwtSecret, async (err, decoded) => {
+      if (err)
+        return res
+          .status(400)
+          .json({ type: "error", message: "Token has been expired!!" });
+      const user = await User.findOneAndUpdate(
+        { email: decoded.emailId },
+        {
+          password: hashedPassword,
+        }
+      );
+      if (user) {
+        return res.status(200).json({ type: "success", data: user });
+      } else {
+        return res.status(500).json({
+          type: "error",
+          message: "Something went wrong, try again!!",
+        });
+      }
+    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ type: "error", message: "Something went wrong, try again!!" });
+  }
+});
+
+router.put("/change-password", async (req, res) => {
   const { id, password } = req.body;
   try {
     const salt = await bcrypt.genSalt();
     const updatedPass = await bcrypt.hash(password, salt);
-    const user = await User.findByIdAndUpdate(id, {
-      password: updatedPass,
-    });
+    const user = await User.findByIdAndUpdate(
+      id,
+      {
+        password: updatedPass,
+      },
+      { new: true }
+    );
     //     console.log(user);
+    if (!user)
+      return res
+        .status(400)
+        .json({ type: "error", message: "User with this ID not found" });
     return res.status(200).json({
       type: "success",
       message: "Password updated successfully!!",
@@ -163,7 +261,9 @@ router.put("/change-password/", async (req, res) => {
     });
   } catch (error) {
     //     console.log(error);
-    return res.status(500).json({ type: "error", message: "Invalid user ID" });
+    return res
+      .status(500)
+      .json({ type: "error", message: "Internal Server error" });
   }
 });
 
@@ -180,5 +280,8 @@ router.get("/get-users", async (req, res) => {
 
 router.get("/logout", (req, res) => {
   res.clearCookie("token");
+  return res
+    .status(200)
+    .send({ type: "success", message: "User logout success" });
 });
 module.exports = router;

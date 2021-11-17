@@ -11,6 +11,8 @@ const userRoutes = require("./routes/userRoutes");
 const requireAuth = require("./middlewares/requireAuth");
 const cartRoutes = require("./routes/cartRoutes");
 const favoriteRoutes = require("./routes/favoriteRoutes");
+const billingRoutes = require("./routes/billingRoutes");
+const orderRoutes = require("./routes/ordersRoutes");
 
 const app = express();
 app.set("view engine", "ejs");
@@ -41,6 +43,8 @@ app.use("/api/user", userRoutes),
   });
 app.use("/api/cart", cartRoutes);
 app.use("/api/favorites", favoriteRoutes);
+app.use("/api/billing", billingRoutes);
+app.use("/api/orders", orderRoutes);
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log("App is listening on ", PORT));
